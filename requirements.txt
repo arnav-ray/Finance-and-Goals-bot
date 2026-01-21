@@ -1,5 +1,4 @@
-google-generativeai
+groq
 gspread
 oauth2client
-Pillow
 requests
