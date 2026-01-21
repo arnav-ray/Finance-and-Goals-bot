@@ -13,6 +13,7 @@ TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 SHEET_ID = os.environ.get("GOOGLE_SHEET_ID")
 ALLOWED_USERS = json.loads(os.environ.get("ALLOWED_USERS", "[]"))
+BOT_USERNAME = "FamilyFinanceBot" # Optional: Replace with actual username
 
 # --- SETUP CLIENTS ---
 client = Groq(api_key=GROQ_API_KEY)
@@ -39,9 +40,35 @@ CRITICAL RULES:
 5. Output JSON only.
 """
 
+# --- TEXT BLOCKS ---
+HELP_TEXT = """
+🤖 **Family Finance Bot**
+
+**Commands:**
+`/start` - Wake up the bot
+`/undo` - Delete last expense
+`/share` - Get links to share with family
+
+**How to use:**
+• Text: `15 Lunch`
+• Photo: Send a receipt picture
+"""
+
+SHARE_TEXT = f"""
+🤝 **Share this Bot**
+
+1. **Forward this message** to your family member.
+2. Tell them to click here: https://t.me/{BOT_USERNAME}?start=family
+3. **Important:** Ask them for their Telegram ID (get it from @userinfobot) and add it to Vercel settings.
+
+📊 **Google Sheet Link:**
+https://docs.google.com/spreadsheets/d/{SHEET_ID}
+(They will need to request access)
+"""
+
 def send_telegram(chat_id, text):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    payload = {"chat_id": chat_id, "text": text, "parse_mode": "Markdown"}
+    payload = {"chat_id": chat_id, "text": text, "parse_mode": "Markdown", "disable_web_page_preview": True}
     requests.post(url, json=payload)
 
 def get_telegram_image_base64(file_id):
@@ -69,20 +96,47 @@ class handler(BaseHTTPRequestHandler):
         chat_id = msg['chat']['id']
         user_id = msg.get('from', {}).get('id')
         
-        # 1. ROBUST USER NAME EXTRACTION
+        # --- FIX: ROBUST USER NAME EXTRACTION ---
+        # 1. Try First Name
         first_name = msg.get('from', {}).get('first_name', '')
+        # 2. Try Username
         username = msg.get('from', {}).get('username', '')
-        # Use first name, fallback to username, fallback to 'Unknown'
+        # 3. Fallback logic
         user_name = first_name if first_name else (username if username else 'Unknown')
         
         # Security Check
         if user_id not in ALLOWED_USERS:
+            send_telegram(chat_id, f"⛔ **Unauthorized**\nYour ID is `{user_id}`.\nAsk the admin to add this ID to the allowed list.")
             self.send_response(200); self.end_headers(); return
 
-        if 'text' in msg and msg['text'] == '/start':
-            send_telegram(chat_id, "🤖 **Bot Ready!**\nType `5 DM` to test.")
+        # --- COMMANDS ---
+        if 'text' in msg and msg['text'].startswith('/'):
+            text_lower = msg['text'].lower()
+            
+            if text_lower == '/start':
+                send_telegram(chat_id, HELP_TEXT)
+            elif text_lower == '/share':
+                send_telegram(chat_id, SHARE_TEXT)
+            elif text_lower == '/undo':
+                try:
+                    sh = gc.open_by_key(SHEET_ID).sheet1
+                    rows = sh.get_all_values()
+                    if len(rows) > 1:
+                        last_row = rows[-1]
+                        # Check ownership (Column F is index 5)
+                        if len(last_row) > 5 and last_row[5] == user_name:
+                            sh.delete_rows(len(rows))
+                            send_telegram(chat_id, f"🗑️ *Deleted:* €{last_row[1]} ({last_row[3]})")
+                        else:
+                            send_telegram(chat_id, "⚠️ Can't delete: The last entry was not yours.")
+                    else:
+                        send_telegram(chat_id, "⚠️ Nothing to delete.")
+                except Exception as e:
+                    send_telegram(chat_id, "⚠️ Error deleting.")
+            
             self.send_response(200); self.end_headers(); return
 
+        # --- AI PROCESSING ---
         try:
             prompt_text = SYSTEM_PROMPT.format(date=datetime.now().strftime("%Y-%m-%d"))
             messages = []
@@ -107,10 +161,10 @@ class handler(BaseHTTPRequestHandler):
             else:
                 self.send_response(200); self.end_headers(); return
 
-            # Call AI
+            # Call Groq
             chat_completion = client.chat.completions.create(
                 messages=messages,
-                model="meta-llama/llama-4-scout-17b-16e-instruct", # Using the working model
+                model="meta-llama/llama-4-scout-17b-16e-instruct",
                 temperature=0,
                 response_format={"type": "json_object"}
             )
@@ -121,7 +175,7 @@ class handler(BaseHTTPRequestHandler):
             amount = float(parsed.get('amount', 0))
             if amount > 0:
                 sh = gc.open_by_key(SHEET_ID).sheet1
-                # 2. EXPLICIT APPEND WITH USER NAME
+                # --- FIX: EXPLICIT APPEND WITH USER NAME ---
                 sh.append_row([
                     datetime.now().strftime("%Y-%m-%d %H:%M"),
                     amount,
