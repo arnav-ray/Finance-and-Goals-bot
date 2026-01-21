@@ -5,6 +5,7 @@ import base64
 import requests
 from groq import Groq
 import gspread
+import pandas as pd
 from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime
 
@@ -13,7 +14,7 @@ TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 SHEET_ID = os.environ.get("GOOGLE_SHEET_ID")
 ALLOWED_USERS = json.loads(os.environ.get("ALLOWED_USERS", "[]"))
-BOT_USERNAME = "RayFamilyFinanceBot"
+BOT_USERNAME = "FamilyFinanceBot"
 
 # --- SETUP CLIENTS ---
 client = Groq(api_key=GROQ_API_KEY)
@@ -52,25 +53,6 @@ CRITICAL PARSING RULES:
 5. Do NOT convert integers to cents: "655" = 655.00 EUR (not 6.55)
 6. TRUST the exact number given - do not scale down large amounts
 7. Output ONLY valid JSON - no markdown, no explanations, no preamble
-
-EXAMPLES:
-Input: "45 Rewe"
-Output: {{"amount": 45.0, "category": "Groceries", "merchant": "Rewe", "note": ""}}
-
-Input: "5 DM"
-Output: {{"amount": 5.0, "category": "Household", "merchant": "dm-drogerie markt", "note": ""}}
-
-Input: "12,50 pizza"
-Output: {{"amount": 12.5, "category": "Food Takeout", "merchant": "Unknown", "note": "pizza"}}
-
-Input: "655 investment etf"
-Output: {{"amount": 655.0, "category": "Investment", "merchant": "Unknown", "note": "etf"}}
-
-Input: "Taxi zum Flughafen 25"
-Output: {{"amount": 25.0, "category": "Transport", "merchant": "Taxi", "note": "zum Flughafen"}}
-
-Input: Receipt image showing: "EDEKA - Total: 34,89 EUR"
-Output: {{"amount": 34.89, "category": "Groceries", "merchant": "Edeka", "note": ""}}
 """
 
 # --- TEXT BLOCKS ---
@@ -79,6 +61,7 @@ HELP_TEXT = """
 
 **Commands:**
 `/start` - Wake up the bot
+`/summary` - View this month's report 📊
 `/undo` - Delete last expense
 `/share` - Get links to share with family
 
@@ -111,6 +94,54 @@ def get_telegram_image_base64(file_id):
     download_url = f"https://api.telegram.org/file/bot{TELEGRAM_TOKEN}/{file_path}"
     image_data = requests.get(download_url).content
     return base64.b64encode(image_data).decode('utf-8')
+
+def generate_summary():
+    try:
+        sh = gc.open_by_key(SHEET_ID).sheet1
+        data = sh.get_all_records()
+        df = pd.DataFrame(data)
+        
+        # Ensure 'Date' is datetime and filter for current month
+        df['Date'] = pd.to_datetime(df['Date'], format="%Y-%m-%d %H:%M", errors='coerce')
+        current_month = datetime.now().strftime("%Y-%m")
+        df_month = df[df['Date'].dt.strftime('%Y-%m') == current_month]
+        
+        if df_month.empty:
+            return f"📊 **No expenses found for {current_month}**"
+
+        # 1. Total Spent
+        total_spent = df_month['Amount'].sum()
+        
+        # 2. By Category
+        cat_summary = df_month.groupby('Category')['Amount'].sum().sort_values(ascending=False)
+        cat_text = "\n".join([f"• {cat}: €{amt:.2f}" for cat, amt in cat_summary.items()])
+        
+        # 3. By User
+        user_summary = df_month.groupby('User')['Amount'].sum().sort_values(ascending=False)
+        user_text = "\n".join([f"• {user}: €{amt:.2f}" for user, amt in user_summary.items()])
+        
+        # 4. Top 3 Expensive Items (Item Wise)
+        top_items = df_month.nlargest(3, 'Amount')[['Merchant', 'Amount']]
+        item_text = "\n".join([f"• {row['Merchant']}: €{row['Amount']:.2f}" for _, row in top_items.iterrows()])
+
+        report = f"""
+📊 **Report: {datetime.now().strftime('%B %Y')}**
+
+💰 **Total: €{total_spent:.2f}**
+
+📂 **By Category:**
+{cat_text}
+
+👤 **By User:**
+{user_text}
+
+🏆 **Top Expenses:**
+{item_text}
+"""
+        return report
+    except Exception as e:
+        print(f"Summary Error: {e}")
+        return "⚠️ Could not generate summary. Check if sheet has headers: Date, Amount, Category, Merchant, Note, User"
 
 class handler(BaseHTTPRequestHandler):
     def do_POST(self):
@@ -147,6 +178,10 @@ class handler(BaseHTTPRequestHandler):
                 send_telegram(chat_id, HELP_TEXT)
             elif text_lower == '/share':
                 send_telegram(chat_id, SHARE_TEXT)
+            elif text_lower == '/summary':
+                send_telegram(chat_id, "⏳ Generating report...")
+                report = generate_summary()
+                send_telegram(chat_id, report)
             elif text_lower == '/undo':
                 try:
                     sh = gc.open_by_key(SHEET_ID).sheet1
