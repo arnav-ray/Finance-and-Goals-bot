@@ -13,7 +13,7 @@ TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 SHEET_ID = os.environ.get("GOOGLE_SHEET_ID")
 ALLOWED_USERS = json.loads(os.environ.get("ALLOWED_USERS", "[]"))
-BOT_USERNAME = "FamilyFinanceBot"
+BOT_USERNAME = "RayFamilyFinanceBot"
 
 # --- SETUP CLIENTS ---
 client = Groq(api_key=GROQ_API_KEY)
