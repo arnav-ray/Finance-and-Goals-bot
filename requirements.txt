@@ -2,3 +2,4 @@ groq
 gspread
 oauth2client
 requests
+pandas
