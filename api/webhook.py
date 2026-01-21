@@ -144,12 +144,12 @@ class handler(BaseHTTPRequestHandler):
             image = get_telegram_file(file_id)
             # The new SDK handles images cleanly
             response = client.models.generate_content(
-                model='gemini-1.5-flash',
+                model='gemini-1.5-flash-001',
                 contents=[prompt_text, image, "Analyze this receipt."]
             )
         elif 'text' in msg:
             response = client.models.generate_content(
-                model='gemini-1.5-flash',
+                model='gemini-1.5-flash-001',
                 contents=[prompt_text, f"Input text: {msg['text']}"]
             )
         else:
