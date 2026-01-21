@@ -1,9 +1,6 @@
 [build]
   functions = "netlify/functions"
 
-[functions]
-  python_runtime = "3.9"
-
 [[redirects]]
   from = "/*"
   to = "/.netlify/functions/webhook"
