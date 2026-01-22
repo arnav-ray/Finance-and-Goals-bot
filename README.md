@@ -1,4 +1,4 @@
-# 🤖 Family Finance Bot (AI-Powered) v2.0
+# 🤖 Family Finance and Goals Bot (AI-Powered) v2.0
 
 A serverless, event-driven Telegram bot that utilizes Large Language Models (LLMs) to automate personal finance tracking **and family goal setting**. It parses unstructured natural language and receipt images into structured data, syncing in real-time with Google Sheets.
 
