@@ -7,9 +7,8 @@ from groq import Groq
 import gspread
 import pandas as pd
 from oauth2client.service_account import ServiceAccountCredentials
-from datetime import datetime, timedelta
+from datetime import datetime
 import logging
-import uuid
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -469,6 +468,7 @@ class DashboardEngine:
             pct = (amt / total * 100) if total > 0 else 0
             report += f"• {cat}: €{amt:,.2f} ({pct:.1f}%)\n"
         
+        # No extra buttons for overview
         return report, []
     
     def _view_category(self, df, period):
@@ -657,11 +657,11 @@ class GoalsManager:
                 goal_data.get('goal', 'Unnamed'),            # Goal_Name
                 float(goal_data.get('target_amount', 0)),    # Target_Amount
                 goal_data.get('target_date', ''),            # Target_Date
-                'Pending',                                    # Status
-                user_name,                                    # Created_By
-                goal_id,                                      # Goal_ID
-                '',                                           # Completed_Date
-                ''                                            # Notes
+                'Pending',                                   # Status
+                user_name,                                   # Created_By
+                goal_id,                                     # Goal_ID
+                '',                                          # Completed_Date
+                ''                                           # Notes
             ]
             
             goals_ws.append_row(row_data)
@@ -1629,7 +1629,7 @@ def handle_expense_message(msg):
         try:
             chat_completion = client.chat.completions.create(
                 messages=messages,
-                model="meta-llama/llama-4-scout-17b-16e-instruct",
+                model="meta-llama/llama-4-scout-17b-16e-instruct",  # Updated to actual Groq model
                 temperature=0,
                 response_format={"type": "json_object"}
             )
@@ -1694,7 +1694,7 @@ class handler(BaseHTTPRequestHandler):
                 self.end_headers()
                 return
             
-            # Handle callback queries (button clicks)
+            # Handle callback queries (dashboard interactions)
             if 'callback_query' in data:
                 handle_callback_query(data['callback_query'])
                 self.send_response(200)
