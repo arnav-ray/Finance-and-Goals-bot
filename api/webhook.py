@@ -190,16 +190,17 @@ HELP_TEXT = """
 Just send: `45 Rewe` or upload a receipt photo
 
 **🎯 Goal Tracking:**
-• `/goal` - Add a new goal
-• `/goals` - View all goals
-• Click ✅ to mark complete
+• `/goal [text]` - Add a new goal
+• `/goals` - View & manage all goals
+• Click goal name to edit details
 
 **📊 Dashboards:**
-• `/summary` - Expense analytics
-• `/goals` - Goal overview
+• `/summary` - Expense analytics  
+• `/goals` - Goal management
 
 **Other Commands:**
 • `/undo` - Delete last expense
+• `/undogoal` - Delete last goal
 • `/share` - Invite family members
 
 **Examples:**
@@ -213,18 +214,28 @@ Just send: `45 Rewe` or upload a receipt photo
 **Goal Format:**
 `/goal [description] [amount] [deadline]`
 Amount and deadline are optional!
+
+**Tip:** Use the menu button (☰) at bottom to access `/goals` quickly!
 """
 
 SHARE_TEXT = f"""
 🤝 **Share this Bot**
 
-1. **Forward this message** to your family member
-2. Tell them to click: https://t.me/{BOT_USERNAME}?start=family
-3. **Important:** Get their Telegram ID from @userinfobot and add it to ALLOWED_USERS in Vercel settings
+**Step 1:** Forward this message to your family member
 
-📊 **Google Sheet:**
-https://docs.google.com/spreadsheets/d/{SHEET_ID}
-(They need to request access)
+**Step 2:** Send them this link:
+`https://t.me/{BOT_USERNAME}?start=family`
+
+**Step 3:** Get their Telegram User ID
+• Tell them to message @userinfobot
+• They'll receive their ID number
+• Add that ID to your Vercel ALLOWED_USERS setting
+
+**Google Sheet Access:**
+Share this link with them:
+`https://docs.google.com/spreadsheets/d/{SHEET_ID}`
+
+They'll need to request edit access from you.
 """
 
 # --- TELEGRAM API HELPERS ---
@@ -762,6 +773,54 @@ class GoalsManager:
         
         return report
     
+    def delete_goal(self, goal_id, user_name):
+        """Delete a goal"""
+        try:
+            sheets_client = get_sheets_client()
+            sheet = sheets_client.open_by_key(SHEET_ID)
+            goals_ws = sheet.worksheet("Goals")
+            
+            # Fetch all rows
+            all_rows = goals_ws.get_all_values()
+            
+            # Find goal by ID
+            goal_row_idx = None
+            goal_name = None
+            
+            for i, row in enumerate(all_rows[1:], start=2):
+                if len(row) > 7 and row[7] == goal_id:
+                    goal_row_idx = i
+                    goal_name = row[2] if len(row) > 2 else "Unknown"
+                    break
+            
+            if goal_row_idx is None:
+                return False, "Goal not found"
+            
+            # Delete the row
+            goals_ws.delete_rows(goal_row_idx)
+            
+            # Invalidate cache
+            self.goals_cache['data'] = None
+            
+            logger.info(f"Goal deleted: {goal_id} by {user_name}")
+            return True, goal_name
+            
+        except Exception as e:
+            logger.error(f"Failed to delete goal: {e}", exc_info=True)
+            return False, "Error deleting goal"
+    
+    def get_goal_by_id(self, goal_id):
+        """Get a single goal by ID"""
+        try:
+            goals = self.get_goals(force_refresh=True, status_filter=None)
+            for goal in goals:
+                if goal.get('Goal_ID') == goal_id:
+                    return goal
+            return None
+        except Exception as e:
+            logger.error(f"Failed to get goal: {e}", exc_info=True)
+            return None
+    
     def _format_date(self, date_str):
         """Format date string to readable format"""
         if not date_str or date_str == 'null':
@@ -971,7 +1030,48 @@ def handle_callback_query(callback_query):
         
         return
     
-    # Handle goal completion
+    # Handle goal edit menu
+    if data_val.startswith('e:'):
+        goal_id = data_val[2:]
+        show_goal_edit_menu(chat_id, message_id, goal_id)
+        answer_callback(callback_id, "Loading goal...")
+        return
+    
+    # Handle goal actions (complete, delete, update)
+    if data_val.startswith('ga:'):
+        # Format: ga:action:goal_id
+        parts = data_val.split(':')
+        if len(parts) >= 3:
+            action = parts[1]
+            goal_id = parts[2]
+            
+            if action == 'complete':
+                success, result = goals_manager.mark_goal_done(goal_id, user_name)
+                if success:
+                    send_telegram(chat_id, f"🎉 Completed: {result}!")
+                    handle_view_goals_internal(chat_id, message_id)
+                    answer_callback(callback_id, "✅ Marked as done!")
+                else:
+                    answer_callback(callback_id, f"⚠️ {result}")
+                return
+            
+            elif action == 'delete':
+                success, result = goals_manager.delete_goal(goal_id, user_name)
+                if success:
+                    send_telegram(chat_id, f"🗑️ Deleted: {result}")
+                    handle_view_goals_internal(chat_id, message_id)
+                    answer_callback(callback_id, "Deleted!")
+                else:
+                    answer_callback(callback_id, f"⚠️ {result}")
+                return
+            
+            elif action == 'back':
+                handle_view_goals_internal(chat_id, message_id)
+                answer_callback(callback_id)
+                return
+        return
+    
+    # Handle goal completion (legacy - keeping for backwards compatibility)
     if data_val.startswith('d:'):
         goal_id = data_val[2:]
         success, result = goals_manager.mark_goal_done(goal_id, user_name)
@@ -1047,6 +1147,65 @@ def build_dashboard_keyboard(view_mode, extra_buttons=None):
         final_keyboard.extend(nav_buttons)
     
     return {"inline_keyboard": final_keyboard}
+
+def show_goal_edit_menu(chat_id, message_id, goal_id):
+    """Show edit menu for a specific goal"""
+    goal = goals_manager.get_goal_by_id(goal_id)
+    
+    if not goal:
+        edit_telegram_message(chat_id, message_id, "⚠️ Goal not found.")
+        return
+    
+    # Format goal details
+    goal_name = goal.get('Goal_Name', 'Unknown')
+    goal_type = goal.get('Type', 'Other')
+    amount = goal.get('Target_Amount', '0')
+    target_date = goal.get('Target_Date', '')
+    status = goal.get('Status', 'Pending')
+    notes = goal.get('Notes', '')
+    created_by = goal.get('Created_By', 'Unknown')
+    
+    # Build message
+    message = f"**📝 Edit Goal**\n\n"
+    message += f"**Name:** {goal_name}\n"
+    message += f"**Type:** {goal_type}\n"
+    
+    if amount and float(amount) > 0:
+        message += f"**Target:** €{float(amount):,.2f}\n"
+    
+    if target_date and target_date != 'null':
+        try:
+            date_obj = datetime.strptime(target_date, "%Y-%m-%d")
+            message += f"**Due:** {date_obj.strftime('%b %d, %Y')}\n"
+        except:
+            message += f"**Due:** {target_date}\n"
+    
+    message += f"**Status:** {status}\n"
+    message += f"**Created by:** {created_by}\n"
+    
+    if notes:
+        message += f"**Notes:** {notes}\n"
+    
+    message += f"\n**To edit details, use:**\n"
+    message += f"`/editgoal {goal_id} [field] [value]`\n\n"
+    message += f"**Examples:**\n"
+    message += f"• `/editgoal {goal_id} amount 3000`\n"
+    message += f"• `/editgoal {goal_id} date 2027-06-30`\n"
+    message += f"• `/editgoal {goal_id} note Making progress!`"
+    
+    # Build action buttons
+    buttons = [
+        [
+            {"text": "✅ Mark Complete", "callback_data": f"ga:complete:{goal_id}"},
+            {"text": "🗑️ Delete", "callback_data": f"ga:delete:{goal_id}"}
+        ],
+        [
+            {"text": "⬅️ Back to Goals", "callback_data": f"ga:back:{goal_id}"}
+        ]
+    ]
+    
+    keyboard = {"inline_keyboard": buttons}
+    edit_telegram_message(chat_id, message_id, message, keyboard)
 
 def handle_command(msg):
     """Handle bot commands"""
@@ -1253,11 +1412,11 @@ def handle_view_goals_internal(chat_id, message_id=None):
             goal_id = goal.get('Goal_ID', '')
             
             if goal_id:
-                # Truncate name for button
-                button_name = goal_name[:18] + "..." if len(goal_name) > 18 else goal_name
+                # Truncate name for button - use pencil icon for edit
+                button_name = goal_name[:16] + "..." if len(goal_name) > 16 else goal_name
                 buttons.append({
-                    "text": f"✅ {button_name}",
-                    "callback_data": f"d:{goal_id}"
+                    "text": f"📝 {button_name}",
+                    "callback_data": f"e:{goal_id}"  # 'e' for edit instead of 'd' for done
                 })
         
         # Group buttons in rows of 2
@@ -1290,6 +1449,142 @@ def handle_view_goals_internal(chat_id, message_id=None):
     except Exception as e:
         logger.error(f"Failed to view goals: {e}", exc_info=True)
         send_telegram(chat_id, "⚠️ Error loading goals. Please try again.")
+
+def handle_undo_goal(chat_id, user_name):
+    """Handle /undogoal command - delete the last goal created by this user"""
+    try:
+        sheets_client = get_sheets_client()
+        sheet = sheets_client.open_by_key(SHEET_ID)
+        goals_ws = sheet.worksheet("Goals")
+        rows = goals_ws.get_all_values()
+        
+        if len(rows) <= 1:
+            send_telegram(chat_id, "⚠️ No goals to delete.")
+            return
+        
+        # Find the last goal created by this user
+        last_user_goal_idx = None
+        last_user_goal = None
+        
+        for i in range(len(rows) - 1, 0, -1):  # Start from bottom, skip header
+            row = rows[i]
+            if len(row) > 6 and row[6] == user_name:  # Created_By column
+                last_user_goal_idx = i + 1  # 1-indexed for gspread
+                last_user_goal = row
+                break
+        
+        if not last_user_goal_idx:
+            send_telegram(chat_id, "⚠️ You haven't created any goals yet.")
+            return
+        
+        # Delete the row
+        goal_name = last_user_goal[2] if len(last_user_goal) > 2 else "Unknown"
+        goals_ws.delete_rows(last_user_goal_idx)
+        
+        # Invalidate cache
+        goals_manager.goals_cache['data'] = None
+        
+        send_telegram(chat_id, f"🗑️ *Deleted goal:* {goal_name}")
+        
+    except Exception as e:
+        logger.error(f"Undo goal failed: {e}", exc_info=True)
+        send_telegram(chat_id, "⚠️ Error deleting goal. Please try again.")
+
+def handle_edit_goal(msg):
+    """Handle /editgoal command to update goal fields"""
+    chat_id = msg['chat']['id']
+    text = msg['text']
+    user_name = msg.get('from', {}).get('first_name', 'Unknown')
+    
+    # Parse command: /editgoal goal_id field value
+    parts = text.split(maxsplit=3)
+    
+    if len(parts) < 4:
+        send_telegram(
+            chat_id,
+            "**Usage:** `/editgoal [goal_id] [field] [value]`\n\n"
+            "**Fields:**\n"
+            "• `amount` - Target amount (e.g., 5000)\n"
+            "• `date` - Target date (e.g., 2027-06-30)\n"
+            "• `note` - Add/update notes\n"
+            "• `status` - Change status (Pending/Done)\n\n"
+            "**Example:**\n"
+            "`/editgoal a3f2b8c1 amount 3000`"
+        )
+        return
+    
+    goal_id = parts[1]
+    field = parts[2].lower()
+    value = parts[3]
+    
+    # Get the goal
+    goal = goals_manager.get_goal_by_id(goal_id)
+    if not goal:
+        send_telegram(chat_id, "⚠️ Goal not found. Check the ID and try again.")
+        return
+    
+    # Update the field
+    try:
+        sheets_client = get_sheets_client()
+        sheet = sheets_client.open_by_key(SHEET_ID)
+        goals_ws = sheet.worksheet("Goals")
+        all_rows = goals_ws.get_all_values()
+        
+        # Find goal row
+        goal_row_idx = None
+        for i, row in enumerate(all_rows[1:], start=2):
+            if len(row) > 7 and row[7] == goal_id:
+                goal_row_idx = i
+                break
+        
+        if not goal_row_idx:
+            send_telegram(chat_id, "⚠️ Goal not found.")
+            return
+        
+        # Update based on field
+        if field == 'amount':
+            try:
+                amount_val = float(value)
+                if amount_val < 0 or amount_val > MAX_GOAL_AMOUNT:
+                    send_telegram(chat_id, f"⚠️ Amount must be between 0 and €{MAX_GOAL_AMOUNT:,}")
+                    return
+                goals_ws.update_cell(goal_row_idx, 4, amount_val)  # Column D
+                send_telegram(chat_id, f"✅ Updated amount to €{amount_val:,.2f}")
+            except ValueError:
+                send_telegram(chat_id, "⚠️ Invalid amount. Use numbers only (e.g., 5000)")
+                return
+        
+        elif field == 'date':
+            try:
+                # Validate date format
+                datetime.strptime(value, "%Y-%m-%d")
+                goals_ws.update_cell(goal_row_idx, 5, value)  # Column E
+                send_telegram(chat_id, f"✅ Updated target date to {value}")
+            except ValueError:
+                send_telegram(chat_id, "⚠️ Invalid date format. Use YYYY-MM-DD (e.g., 2027-06-30)")
+                return
+        
+        elif field in ['note', 'notes']:
+            goals_ws.update_cell(goal_row_idx, 10, value)  # Column J
+            send_telegram(chat_id, f"✅ Updated notes: {value}")
+        
+        elif field == 'status':
+            if value not in ['Pending', 'Done', 'In Progress']:
+                send_telegram(chat_id, "⚠️ Status must be: Pending, Done, or In Progress")
+                return
+            goals_ws.update_cell(goal_row_idx, 6, value)  # Column F
+            send_telegram(chat_id, f"✅ Updated status to {value}")
+        
+        else:
+            send_telegram(chat_id, f"⚠️ Unknown field '{field}'. Use: amount, date, note, or status")
+            return
+        
+        # Invalidate cache
+        goals_manager.goals_cache['data'] = None
+        
+    except Exception as e:
+        logger.error(f"Edit goal failed: {e}", exc_info=True)
+        send_telegram(chat_id, "⚠️ Error updating goal. Please try again.")
 
 def handle_expense_message(msg):
     """Handle expense input (text or image)"""
@@ -1434,6 +1729,12 @@ class handler(BaseHTTPRequestHandler):
                 
                 elif text == '/goals':
                     handle_view_goals(msg)
+                
+                elif text == '/undogoal':
+                    handle_undo_goal(chat_id, user_name)
+                
+                elif text.startswith('/editgoal '):
+                    handle_edit_goal(msg)
                 
                 # Expense commands
                 elif text in ['/start', '/help']:
