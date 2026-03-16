@@ -11,6 +11,8 @@ from google.oauth2.service_account import Credentials
 from datetime import datetime
 import logging
 import uuid
+import time
+import collections
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -54,6 +56,23 @@ ALLOWED_GOAL_TYPES = [
 # Limits
 MAX_AMOUNT = 10000  # Sanity check for expenses
 MAX_GOAL_AMOUNT = 100000  # Sanity check for goals
+
+# LOW-2: Per-user rate limiter (best-effort; in-process only)
+_rate_limit_window = 60   # seconds
+_rate_limit_max = 15      # max messages per window per user
+_user_timestamps: dict = collections.defaultdict(collections.deque)
+
+def _is_rate_limited(user_id: int) -> bool:
+    """Return True if the user has exceeded the request rate limit."""
+    now = time.monotonic()
+    dq = _user_timestamps[user_id]
+    # Drop timestamps outside the rolling window
+    while dq and now - dq[0] > _rate_limit_window:
+        dq.popleft()
+    if len(dq) >= _rate_limit_max:
+        return True
+    dq.append(now)
+    return False
 
 # FIX 5: Helper to prevent Google Sheets formula injection
 def sanitize_cell(value):
@@ -722,6 +741,7 @@ class GoalsManager:
             goal_name = None
             timestamp = None
             current_status = None
+            goal_creator = None
 
             for i, row in enumerate(all_rows[1:], start=2):  # Start at row 2
                 if len(row) > 7 and row[7] == goal_id:
@@ -729,11 +749,17 @@ class GoalsManager:
                     goal_name = row[2] if len(row) > 2 else "Unknown"
                     timestamp = row[0] if len(row) > 0 else None
                     current_status = row[5] if len(row) > 5 else None
+                    goal_creator = row[6] if len(row) > 6 else None
                     break
 
             if goal_row_idx is None:
                 logger.warning(f"Goal not found: {goal_id}")
                 return False, "Goal not found"
+
+            # MEDIUM-1: Ownership check — only the creator can complete their goal
+            if goal_creator and goal_creator != user_name:
+                logger.warning(f"Unauthorized goal complete attempt: {user_name} on goal by {goal_creator}")
+                return False, "You can only complete your own goals"
 
             # Check if already done
             if current_status == 'Done':
@@ -817,15 +843,22 @@ class GoalsManager:
             # Find goal by ID
             goal_row_idx = None
             goal_name = None
+            goal_creator = None
 
             for i, row in enumerate(all_rows[1:], start=2):
                 if len(row) > 7 and row[7] == goal_id:
                     goal_row_idx = i
                     goal_name = row[2] if len(row) > 2 else "Unknown"
+                    goal_creator = row[6] if len(row) > 6 else None
                     break
 
             if goal_row_idx is None:
                 return False, "Goal not found"
+
+            # MEDIUM-1: Ownership check — only the creator can delete their goal
+            if goal_creator and goal_creator != user_name:
+                logger.warning(f"Unauthorized goal delete attempt: {user_name} on goal by {goal_creator}")
+                return False, "You can only delete your own goals"
 
             # Delete the row
             goals_ws.delete_rows(goal_row_idx)
@@ -1583,13 +1616,20 @@ def handle_edit_goal(msg):
 
         # Find goal row
         goal_row_idx = None
+        goal_creator = None
         for i, row in enumerate(all_rows[1:], start=2):
             if len(row) > 7 and row[7] == goal_id:
                 goal_row_idx = i
+                goal_creator = row[6] if len(row) > 6 else None
                 break
 
         if not goal_row_idx:
             send_telegram(chat_id, "⚠️ Goal not found.")
+            return
+
+        # MEDIUM-1: Ownership check — only the creator can edit their goal
+        if goal_creator and goal_creator != user_name:
+            send_telegram(chat_id, "⚠️ You can only edit your own goals.")
             return
 
         # Update based on field
@@ -1607,8 +1647,11 @@ def handle_edit_goal(msg):
 
         elif field == 'date':
             try:
-                # Validate date format
-                datetime.strptime(value, "%Y-%m-%d")
+                # LOW-1: Validate format and that date is in the future
+                date_obj = datetime.strptime(value, "%Y-%m-%d")
+                if date_obj < datetime.now():
+                    send_telegram(chat_id, "⚠️ Target date must be in the future.")
+                    return
                 goals_ws.update_cell(goal_row_idx, 5, value)  # Column E
                 send_telegram(chat_id, f"✅ Updated target date to {value}")
             except ValueError:
@@ -1616,7 +1659,8 @@ def handle_edit_goal(msg):
                 return
 
         elif field in ['note', 'notes']:
-            goals_ws.update_cell(goal_row_idx, 10, value)  # Column J
+            # MEDIUM-2: sanitize before writing to prevent formula injection
+            goals_ws.update_cell(goal_row_idx, 10, sanitize_cell(value))  # Column J
             send_telegram(chat_id, f"✅ Updated notes: {value}")
 
         elif field == 'status':
@@ -1732,11 +1776,9 @@ class handler(BaseHTTPRequestHandler):
     """Vercel serverless function handler"""
 
     def do_GET(self):
-        """Health check endpoint"""
+        """Health check endpoint — LOW-3: return minimal response, no info disclosure"""
         self.send_response(200)
-        self.send_header('Content-Type', 'text/plain')
         self.end_headers()
-        self.wfile.write(b"Bot is Online")
 
     def do_POST(self):
         """Handle Telegram webhook"""
@@ -1750,7 +1792,9 @@ class handler(BaseHTTPRequestHandler):
                     self.end_headers()
                     return
 
-            content_length = int(self.headers.get('Content-Length', 0))
+            # MEDIUM-3: Cap body size to prevent memory exhaustion attacks
+            MAX_BODY_SIZE = 1 * 1024 * 1024  # 1MB (Telegram payloads are never this large)
+            content_length = min(int(self.headers.get('Content-Length', 0)), MAX_BODY_SIZE)
             post_data = self.rfile.read(content_length)
 
             # Parse JSON
@@ -1767,6 +1811,12 @@ class handler(BaseHTTPRequestHandler):
                 cq = data['callback_query']
                 cq_user_id = cq.get('from', {}).get('id')
                 if cq_user_id not in ALLOWED_USERS:
+                    self.send_response(200)
+                    self.end_headers()
+                    return
+                # LOW-2: Rate limit on callbacks too
+                if _is_rate_limited(cq_user_id):
+                    logger.warning(f"Rate limit exceeded for callback user {cq_user_id}")
                     self.send_response(200)
                     self.end_headers()
                     return
@@ -1789,6 +1839,13 @@ class handler(BaseHTTPRequestHandler):
             # Security check
             if user_id not in ALLOWED_USERS:
                 logger.warning(f"Unauthorized access attempt from user {user_id}")
+                self.send_response(200)
+                self.end_headers()
+                return
+
+            # LOW-2: Rate limit — silently drop if exceeded (200 so Telegram doesn't retry)
+            if _is_rate_limited(user_id):
+                logger.warning(f"Rate limit exceeded for user {user_id}")
                 self.send_response(200)
                 self.end_headers()
                 return
