@@ -154,7 +154,53 @@ share - Share bot with family
 
 ```
 
+## 🔒 Security Setup (Required)
 
+### 1. Set Webhook Secret Token
+
+Generate a random secret and register it with Telegram when setting your webhook:
+
+```bash
+curl "https://api.telegram.org/bot<TOKEN>/setWebhook?url=<YOUR_VERCEL_URL>/api/webhook&secret_token=<YOUR_SECRET>"
+```
+
+Add `WEBHOOK_SECRET_TOKEN=<YOUR_SECRET>` to your Vercel environment variables.
+
+### 2. Required Environment Variables
+
+```bash
+TELEGRAM_TOKEN=...          # Your bot token from @BotFather
+GROQ_API_KEY=...            # Groq API key
+GOOGLE_SHEET_ID=...         # Google Sheet ID
+GOOGLE_JSON_KEY=...         # Full service account JSON (escaped)
+ALLOWED_USERS=[12345678]    # Array of allowed Telegram user IDs
+WEBHOOK_SECRET_TOKEN=...    # Random secret for webhook validation (REQUIRED)
+BOT_USERNAME=YourBotName    # Your bot's username without @
+```
+
+### 3. Google Service Account Permissions
+
+The service account only needs these scopes (already configured in the code):
+- `https://www.googleapis.com/auth/spreadsheets`
+- `https://www.googleapis.com/auth/drive.file`
+
+Do **not** grant full Drive access.
+
+### 4. Google Sheets Access
+
+Share your Google Sheet **only** with the service account email address. Do not share the Sheet ID publicly.
+
+### 5. Find Your Telegram User ID
+
+Message [@userinfobot](https://t.me/userinfobot) on Telegram to get your numeric user ID. Add all family members' IDs to `ALLOWED_USERS`.
+
+## 📦 Updated Dependencies
+
+```bash
+pip install groq gspread google-auth google-auth-oauthlib requests pandas
+```
+
+> **Note:** `oauth2client` has been replaced with `google-auth` (the maintained library).
 
 ## ⌨️ Command Reference
 
