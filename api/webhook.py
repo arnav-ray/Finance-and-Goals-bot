@@ -32,7 +32,7 @@ if not TELEGRAM_TOKEN or not GROQ_API_KEY or not SHEET_ID:
 if not os.environ.get("GOOGLE_JSON_KEY"):
     raise ValueError("Missing required environment variable: GOOGLE_JSON_KEY")
 if not os.environ.get("WEBHOOK_SECRET_TOKEN"):
-    logger.warning("WEBHOOK_SECRET_TOKEN not set - webhook is open to unauthenticated requests")
+    raise ValueError("Missing required environment variable: WEBHOOK_SECRET_TOKEN")
 
 # Parse allowed users
 try:
@@ -431,7 +431,7 @@ class DashboardEngine:
                     df = df.rename(columns={date_col: 'Date'})
                     df['Date'] = parsed
                     return df
-            except:
+            except Exception:
                 continue
 
         return df
@@ -689,7 +689,7 @@ class GoalsManager:
             logger.error(f"Failed to fetch goals: {e}", exc_info=True)
             return []
 
-    def add_goal(self, goal_data, user_name):
+    def add_goal(self, goal_data, user_name, user_id=None):
         """Add a new goal to the sheet"""
         try:
             sheets_client = get_sheets_client()
@@ -698,6 +698,10 @@ class GoalsManager:
 
             # Generate unique ID
             goal_id = str(uuid.uuid4())[:8]
+
+            # Store user_id (str) in Created_By for reliable ownership checks;
+            # fall back to user_name for backwards compatibility if user_id unavailable.
+            created_by = str(user_id) if user_id else sanitize_cell(user_name)
 
             # FIX 5: Sanitize user-supplied string fields to prevent formula injection
             # Prepare row data (match schema: 10 columns)
@@ -708,7 +712,7 @@ class GoalsManager:
                 float(goal_data.get('target_amount', 0)),              # Target_Amount
                 goal_data.get('target_date', ''),                      # Target_Date
                 'Pending',                                             # Status
-                sanitize_cell(user_name),                             # Created_By
+                created_by,                                            # Created_By
                 goal_id,                                               # Goal_ID
                 '',                                                    # Completed_Date
                 sanitize_cell(goal_data.get('notes', ''))             # Notes
@@ -726,7 +730,7 @@ class GoalsManager:
             logger.error(f"Failed to add goal: {e}", exc_info=True)
             return False, None
 
-    def mark_goal_done(self, goal_id, user_name):
+    def mark_goal_done(self, goal_id, user_name, user_id=None):
         """Mark a goal as complete with race condition protection"""
         try:
             sheets_client = get_sheets_client()
@@ -757,7 +761,9 @@ class GoalsManager:
                 return False, "Goal not found"
 
             # MEDIUM-1: Ownership check — only the creator can complete their goal
-            if goal_creator and goal_creator != user_name:
+            # Compare against user_id (str) first, then fall back to user_name for
+            # goals created before the user_id migration.
+            if goal_creator and goal_creator != str(user_id) and goal_creator != user_name:
                 logger.warning(f"Unauthorized goal complete attempt: {user_name} on goal by {goal_creator}")
                 return False, "You can only complete your own goals"
 
@@ -830,7 +836,7 @@ class GoalsManager:
 
         return report
 
-    def delete_goal(self, goal_id, user_name):
+    def delete_goal(self, goal_id, user_name, user_id=None):
         """Delete a goal"""
         try:
             sheets_client = get_sheets_client()
@@ -856,7 +862,9 @@ class GoalsManager:
                 return False, "Goal not found"
 
             # MEDIUM-1: Ownership check — only the creator can delete their goal
-            if goal_creator and goal_creator != user_name:
+            # Compare against user_id (str) first, then fall back to user_name for
+            # goals created before the user_id migration.
+            if goal_creator and goal_creator != str(user_id) and goal_creator != user_name:
                 logger.warning(f"Unauthorized goal delete attempt: {user_name} on goal by {goal_creator}")
                 return False, "You can only delete your own goals"
 
@@ -1111,7 +1119,7 @@ def handle_callback_query(callback_query):
             goal_id = parts[2]
 
             if action == 'complete':
-                success, result = goals_manager.mark_goal_done(goal_id, user_name)
+                success, result = goals_manager.mark_goal_done(goal_id, user_name, user_id)
                 if success:
                     send_telegram(chat_id, f"🎉 Completed: {result}!")
                     handle_view_goals_internal(chat_id, message_id)
@@ -1121,7 +1129,7 @@ def handle_callback_query(callback_query):
                 return
 
             elif action == 'delete':
-                success, result = goals_manager.delete_goal(goal_id, user_name)
+                success, result = goals_manager.delete_goal(goal_id, user_name, user_id)
                 if success:
                     send_telegram(chat_id, f"🗑️ Deleted: {result}")
                     handle_view_goals_internal(chat_id, message_id)
@@ -1139,7 +1147,7 @@ def handle_callback_query(callback_query):
     # Handle goal completion (legacy - keeping for backwards compatibility)
     if data_val.startswith('d:'):
         goal_id = data_val[2:]
-        success, result = goals_manager.mark_goal_done(goal_id, user_name)
+        success, result = goals_manager.mark_goal_done(goal_id, user_name, user_id)
 
         if success:
             send_telegram(chat_id, f"🎉 Completed: {result}!")
@@ -1440,7 +1448,7 @@ def handle_add_goal(msg):
         return
 
     # Save goal
-    success, goal_id = goals_manager.add_goal(parsed, user_name)
+    success, goal_id = goals_manager.add_goal(parsed, user_name, user_id)
 
     if success:
         # Build confirmation message
@@ -1579,6 +1587,7 @@ def handle_edit_goal(msg):
     chat_id = msg['chat']['id']
     text = msg['text']
     user_name = msg.get('from', {}).get('first_name', 'Unknown')
+    user_id = msg.get('from', {}).get('id')
 
     # Parse command: /editgoal goal_id field value
     parts = text.split(maxsplit=3)
@@ -1628,7 +1637,9 @@ def handle_edit_goal(msg):
             return
 
         # MEDIUM-1: Ownership check — only the creator can edit their goal
-        if goal_creator and goal_creator != user_name:
+        # Compare against user_id (str) first, then fall back to user_name for
+        # goals created before the user_id migration.
+        if goal_creator and goal_creator != str(user_id) and goal_creator != user_name:
             send_telegram(chat_id, "⚠️ You can only edit your own goals.")
             return
 
@@ -1793,9 +1804,9 @@ class handler(BaseHTTPRequestHandler):
                     return
 
             # MEDIUM-3: Cap body size to prevent memory exhaustion attacks
+            # Read unconditionally up to cap — do not rely on spoofable Content-Length header
             MAX_BODY_SIZE = 1 * 1024 * 1024  # 1MB (Telegram payloads are never this large)
-            content_length = min(int(self.headers.get('Content-Length', 0)), MAX_BODY_SIZE)
-            post_data = self.rfile.read(content_length)
+            post_data = self.rfile.read(MAX_BODY_SIZE)
 
             # Parse JSON
             try:
