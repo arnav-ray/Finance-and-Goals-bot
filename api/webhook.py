@@ -723,7 +723,7 @@ class GoalsManager:
             # Invalidate cache
             self.goals_cache['data'] = None
 
-            logger.info(f"Goal created: {goal_id} by {user_name}")
+            logger.info(f"Goal created: {goal_id} by user_id={user_id}")
             return True, goal_id
 
         except Exception as e:
@@ -764,7 +764,7 @@ class GoalsManager:
             # Compare against user_id (str) first, then fall back to user_name for
             # goals created before the user_id migration.
             if goal_creator and goal_creator != str(user_id) and goal_creator != user_name:
-                logger.warning(f"Unauthorized goal complete attempt: {user_name} on goal by {goal_creator}")
+                logger.warning(f"Unauthorized goal complete attempt by user_id={user_id} on goal {goal_id}")
                 return False, "You can only complete your own goals"
 
             # Check if already done
@@ -789,7 +789,7 @@ class GoalsManager:
             # Invalidate cache
             self.goals_cache['data'] = None
 
-            logger.info(f"Goal completed: {goal_id} by {user_name}")
+            logger.info(f"Goal completed: {goal_id} by user_id={user_id}")
             return True, goal_name
 
         except Exception as e:
@@ -865,7 +865,7 @@ class GoalsManager:
             # Compare against user_id (str) first, then fall back to user_name for
             # goals created before the user_id migration.
             if goal_creator and goal_creator != str(user_id) and goal_creator != user_name:
-                logger.warning(f"Unauthorized goal delete attempt: {user_name} on goal by {goal_creator}")
+                logger.warning(f"Unauthorized goal delete attempt by user_id={user_id} on goal {goal_id}")
                 return False, "You can only delete your own goals"
 
             # Delete the row
@@ -874,7 +874,7 @@ class GoalsManager:
             # Invalidate cache
             self.goals_cache['data'] = None
 
-            logger.info(f"Goal deleted: {goal_id} by {user_name}")
+            logger.info(f"Goal deleted: {goal_id} by user_id={user_id}")
             return True, goal_name
 
         except Exception as e:
@@ -901,7 +901,7 @@ class GoalsManager:
         try:
             date_obj = datetime.strptime(date_str, "%Y-%m-%d")
             return date_obj.strftime("%b %d, %Y")
-        except:
+        except ValueError:
             return date_str
 
 # Initialize goals manager
@@ -1236,7 +1236,6 @@ def show_goal_edit_menu(chat_id, message_id, goal_id):
     target_date = goal.get('Target_Date', '')
     status = goal.get('Status', 'Pending')
     notes = goal.get('Notes', '')
-    created_by = goal.get('Created_By', 'Unknown')
 
     # Build message
     message = f"**📝 Edit Goal**\n\n"
@@ -1250,11 +1249,10 @@ def show_goal_edit_menu(chat_id, message_id, goal_id):
         try:
             date_obj = datetime.strptime(target_date, "%Y-%m-%d")
             message += f"**Due:** {date_obj.strftime('%b %d, %Y')}\n"
-        except:
+        except ValueError:
             message += f"**Due:** {target_date}\n"
 
     message += f"**Status:** {status}\n"
-    message += f"**Created by:** {created_by}\n"
 
     if notes:
         message += f"**Notes:** {notes}\n"
@@ -1418,7 +1416,7 @@ def handle_add_goal(msg):
         logger.debug(f"Goal parsed: {parsed}")
 
     except json.JSONDecodeError as e:
-        logger.error(f"JSON parsing failed: {e}. Raw response: {response_content if 'response_content' in locals() else 'N/A'}")
+        logger.error(f"Goal JSON parsing failed: {e}")
         send_telegram(
             chat_id,
             "⚠️ Could not parse goal (invalid AI response).\n\n"
@@ -1468,7 +1466,7 @@ def handle_add_goal(msg):
             try:
                 date_obj = datetime.strptime(target_date, "%Y-%m-%d")
                 confirm_msg += f"📅 **Due:** {date_obj.strftime('%b %d, %Y')}\n"
-            except:
+            except ValueError:
                 pass
 
         confirm_msg += f"\n✅ View all goals: `/goals`"
