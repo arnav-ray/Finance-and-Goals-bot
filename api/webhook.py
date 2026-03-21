@@ -1801,10 +1801,18 @@ class handler(BaseHTTPRequestHandler):
                     self.end_headers()
                     return
 
-            # MEDIUM-3: Cap body size to prevent memory exhaustion attacks
-            # Read unconditionally up to cap — do not rely on spoofable Content-Length header
+            # Cap body size to prevent memory exhaustion attacks.
+            # Read exactly what the client claims to send (Content-Length), capped at
+            # MAX_BODY_SIZE. rfile.read(n) blocks until n bytes are received, so we must
+            # not read more than the client is going to send — otherwise the function
+            # hangs for 5 minutes until the Vercel timeout kills it.
             MAX_BODY_SIZE = 1 * 1024 * 1024  # 1MB (Telegram payloads are never this large)
-            post_data = self.rfile.read(MAX_BODY_SIZE)
+            try:
+                content_length = int(self.headers.get('Content-Length', 0))
+            except (ValueError, TypeError):
+                content_length = 0
+            content_length = min(content_length, MAX_BODY_SIZE)
+            post_data = self.rfile.read(content_length)
 
             # Parse JSON
             try:
