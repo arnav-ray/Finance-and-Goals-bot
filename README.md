@@ -1,148 +1,102 @@
-# 🤖 Family Finance and Goals Bot (AI-Powered) v2.0
+# Family Finance and Goals Bot
 
-A serverless, event-driven Telegram bot that utilizes Large Language Models (LLMs) to automate personal finance tracking **and family goal setting**. It parses unstructured natural language and receipt images into structured data, syncing in real-time with Google Sheets.
+A serverless Telegram bot for family finance tracking and goal management. Send a text message or photo of a receipt — the bot parses it with an LLM, saves it to Google Sheets, and gives you interactive dashboards.
 
-## 📋 Table of Contents
+## Contents
 
-* [Overview](https://www.google.com/search?q=%23-overview)
-* [Key Features](https://www.google.com/search?q=%23-key-features)
-* [Expense Tracking Engine](https://www.google.com/search?q=%23-expense-tracking-engine)
-* [Goal Management Engine](https://www.google.com/search?q=%23-goal-management-engine)
-* [Dashboards & Analytics](https://www.google.com/search?q=%23-dashboards--analytics)
-* [Tech Stack](https://www.google.com/search?q=%23-tech-stack)
-* [Google Sheets Schema](https://www.google.com/search?q=%23-google-sheets-schema)
-* [Setup & Deployment](https://www.google.com/search?q=%23-setup--deployment)
-* [Command Reference](https://www.google.com/search?q=%23-command-reference)
+- [Overview](#overview)
+- [Features](#features)
+- [Architecture](#architecture)
+- [Google Sheets Schema](#google-sheets-schema)
+- [Setup and Deployment](#setup-and-deployment)
+- [Environment Variables](#environment-variables)
+- [Command Reference](#command-reference)
+- [Security Model](#security-model)
+- [Dependencies](#dependencies)
+- [License](#license)
 
-## 🧐 Overview
+---
 
-The Family Finance Bot solves the friction of manual family administration. Instead of navigating complex UI/UX in finance apps, users simply text their expenses ("15 Lunch") or their goals ("Trip to Italy 2000 by June"). The system uses Computer Vision and NLP to extract structured data and manage it via persistent, interactive dashboards directly in Telegram.
+## Overview
 
-## ✨ Key Features
+Family members text expenses naturally (`15 Rewe`, `12,50 pizza`) or upload a receipt photo. The bot uses Groq's Llama 4 Vision to parse the input, validates the result, and appends a row to a shared Google Sheet. Interactive Telegram dashboards show spending by category, user, and merchant with drill-down buttons.
 
-* **Multimodal Inputs:** Supports text messages and receipt images (OCR/Vision).
-* **Zero-Shot Classification:** AI intelligently categorizes expenses (e.g., "Netflix" → "Subscription") without training data.
-* **Context Aware:** Automatically tags the spender based on Telegram metadata and handles date logic (e.g., "by next summer").
-* **Race-Condition Protection:** Safely handles concurrent edits and deletions for shared family sheets.
-* **Smart Currency Logic:** Detects legacy currencies (e.g., "DM" → "Drugstore", not "Deutsche Mark") and normalizes to EUR.
+Goals work the same way: `/goal Trip to Japan 5000 by December` — the AI parses the type, amount, and deadline, and saves it to a Goals sheet with a unique ID.
 
-## 💰 Expense Tracking Engine
+---
 
-The bot uses a specialized system prompt to parse expenses. You can simply type naturally or upload a photo.
+## Features
 
-### 1. Smart Parsing
+- **Natural language expense logging** — just type the amount and where you spent it
+- **Receipt scanning** — send a photo, the bot reads the total and merchant via vision LLM
+- **Expense dashboard** — overview, by category, by user, by merchant, recent history
+- **User drill-down** — tap a family member to see their category breakdown
+- **Goal tracking** — financial goals, tasks, and to-dos with deadlines
+- **Goal editing** — update amount, date, notes, or status inline
+- **Undo** — delete your last expense or goal
+- **Shared family access** — multiple Telegram users via allowlist
+- **Race condition protection** — safe concurrent edits to shared sheets
 
-Input: `45 Rewe`
-Output: `{"amount": 45.0, "category": "Groceries", "merchant": "Rewe"}`
+---
 
-Input: `12,50 pizza`
-Output: `{"amount": 12.5, "category": "Food Takeout", "note": "pizza"}`
-
-### 2. Receipt Scanning (Computer Vision)
-
-Simply upload a photo of a receipt. The bot will:
-
-1. Scan the total amount.
-2. Identify the merchant name.
-3. Categorize the purchase automatically.
-
-### 3. Automatic Categories
-
-The AI strictly maps expenses to these buckets for consistent reporting:
-
-* 🛒 **Groceries** (Rewe, Aldi, Lidl, etc.)
-* 🍕 **Food Takeout** (Restaurants, Delivery)
-* ✈️ **Travel** (Flights, Uber, DB, Hotels)
-* 📺 **Subscription** (Netflix, Spotify, Gym)
-* 💰 **Investment** (Stocks, ETFs)
-* 🏠 **Household** (Furniture, Drugstore/dm)
-* 🚌 **Transport** (Fuel, Parking, Public Transit)
-* 🤷 **Other**
-
-## 🎯 Goal Management Engine
-
-*New in v2.0*
-
-The bot now tracks financial goals and to-do lists.
-
-### 1. Natural Language Creation
-
-Create goals without strict syntax:
-
-* **Financial:** `/goal Emergency fund 10000`
-* **Vacation:** `/goal Trip to Japan 5000 by December 2026`
-* **Skill:** `/goal Learn Spanish by summer`
-* **Task:** `/goal Renew car insurance next month`
-
-### 2. Interactive Editing
-
-Clicking any goal in the dashboard opens an **Edit Menu** where you can:
-
-* ✏️ **Update Details:** `/editgoal [ID] amount 5000`
-* 📝 **Add Notes:** `/editgoal [ID] note Booked flights!`
-* 🔄 **Change Status:** Pending → In Progress → Done
-* 🗑️ **Delete:** Remove goals safely.
-
-## 📊 Dashboards & Analytics
-
-The bot features interactive drill-down dashboards powered by `pandas`.
-
-### Expense Dashboard (`/summary`)
-
-* **Overview:** Total spent, transaction count, average.
-* **Categorization:** Breakdown by category percentages.
-* **User Split:** See who spent what (useful for family splitting).
-* **Drill-Down:** Click on a User to see *their* specific category breakdown.
-* **Merchants:** Top 10 places you shop.
-
-### Goal Dashboard (`/goals`)
-
-* Separates **Financial Goals** (with amounts) from **Tasks** (to-dos).
-* Shows progress deadlines.
-* Visual indicators for deadlines (e.g., "Due: Jun 30, 2026").
-
-## 🛠 Tech Stack
-
-| Component | Technology | Rationale |
-| --- | --- | --- |
-| **Runtime** | Python 3.9+ | Native support for AI libraries and robust HTTP handling. |
-| **Hosting** | Vercel Serverless | Event-driven architecture with zero idle costs. |
-| **AI Inference** | Groq Cloud API | Ultra-low latency LPU inference using **Llama 4 Vision**. |
-| **Database** | Google Sheets | Accessible UI for non-technical stakeholders; easy export. |
-| **Interface** | Telegram Bot API | High availability, mobile-first interface. |
-
-## 📊 Google Sheets Schema
-
-**CRITICAL:** You must create two tabs in your Google Sheet with the exact headers below.
-
-### Tab 1: `Expenses`
-
-| Date | Amount | Category | Merchant | Note | User |
-| --- | --- | --- | --- | --- | --- |
-| *YYYY-MM-DD* | *Float* | *String* | *String* | *String* | *String* |
-
-### Tab 2: `Goals`
-
-| Created_Date | Type | Goal_Name | Target_Amount | Target_Date | Status | Created_By | Goal_ID | Completed_Date | Notes |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| *YYYY-MM-DD* | *String* | *String* | *Float* | *YYYY-MM-DD* | *Pending* | *String* | *UUID* | *YYYY-MM-DD* | *String* |
-
-## 🚀 Setup & Deployment
-
-1. **Environment Variables:**
-```bash
-TELEGRAM_TOKEN=...
-GROQ_API_KEY=...
-GOOGLE_SHEET_ID=...
-ALLOWED_USERS=[12345678]
-GOOGLE_JSON_KEY={"type": "service_account", ...}
+## Architecture
 
 ```
+Telegram user
+    │  message / photo
+    ▼
+Vercel serverless function  (api/webhook.py)
+    │
+    ├─ Auth: X-Telegram-Bot-Api-Secret-Token header
+    ├─ Auth: ALLOWED_USERS allowlist
+    ├─ Rate limit: 15 req / 60s per user (in-process)
+    │
+    ├─ Text/image → Groq Cloud API (Llama 4 Vision)
+    │               structured JSON response
+    │
+    ├─ Validate → sanitize → append row
+    ▼
+Google Sheets  (Expenses tab + Goals tab)
+```
 
+**Stack:**
 
-2. **BotFather Configuration:**
-Send `/setcommands` to `@BotFather`:
-```text
+| Component | Technology |
+|-----------|-----------|
+| Runtime | Python 3.9+ |
+| Hosting | Vercel Serverless |
+| AI | Groq Cloud — `meta-llama/llama-4-scout-17b-16e-instruct` |
+| Database | Google Sheets (via gspread) |
+| Interface | Telegram Bot API (webhook mode) |
+
+---
+
+## Google Sheets Schema
+
+Create two tabs in your Google Sheet with these exact headers.
+
+**Tab: `Expenses`**
+
+| Date | Amount | Category | Merchant | Note | User |
+|------|--------|----------|----------|------|------|
+| YYYY-MM-DD HH:MM | float | string | string | string | string |
+
+**Tab: `Goals`**
+
+| Created_Date | Type | Goal_Name | Target_Amount | Target_Date | Status | Created_By | Goal_ID | Completed_Date | Notes |
+|---|---|---|---|---|---|---|---|---|---|
+| YYYY-MM-DD | string | string | float | YYYY-MM-DD | Pending | string | uuid8 | YYYY-MM-DD | string |
+
+---
+
+## Setup and Deployment
+
+### 1. Create the Telegram bot
+
+Message [@BotFather](https://t.me/BotFather) and use `/newbot`. Copy the token.
+
+Set commands via `/setcommands`:
+```
 start - Show help and main menu
 goal - Add a new goal
 goals - View and manage all goals
@@ -150,69 +104,166 @@ summary - View expense dashboard
 undo - Delete your last expense
 undogoal - Delete your last goal
 editgoal - Edit goal details
-share - Share bot with family
-
+share - Invite family members
 ```
 
-## 🔒 Security Setup (Required)
+### 2. Create the Google Sheet
 
-### 1. Set Webhook Secret Token
+1. Create a new Google Sheet with two tabs: `Expenses` and `Goals`
+2. Add the column headers from the schema above
+3. Create a Google Cloud service account, download the JSON key
+4. Share the sheet with the service account email address (Editor access)
 
-Generate a random secret and register it with Telegram when setting your webhook:
+### 3. Set up Groq
+
+Create an account at [console.groq.com](https://console.groq.com) and generate an API key.
+
+### 4. Deploy to Vercel
 
 ```bash
-curl "https://api.telegram.org/bot<TOKEN>/setWebhook?url=<YOUR_VERCEL_URL>/api/webhook&secret_token=<YOUR_SECRET>"
+# Install Vercel CLI
+npm i -g vercel
+
+# Deploy
+vercel --prod
 ```
 
-Add `WEBHOOK_SECRET_TOKEN=<YOUR_SECRET>` to your Vercel environment variables.
+Set all environment variables in the Vercel dashboard (Settings → Environment Variables).
 
-### 2. Required Environment Variables
+### 5. Register the webhook
+
+Generate a random secret (e.g. `openssl rand -hex 32`) and register it with Telegram:
 
 ```bash
-TELEGRAM_TOKEN=...          # Your bot token from @BotFather
-GROQ_API_KEY=...            # Groq API key
-GOOGLE_SHEET_ID=...         # Google Sheet ID
-GOOGLE_JSON_KEY=...         # Full service account JSON (escaped)
-ALLOWED_USERS=[12345678]    # Array of allowed Telegram user IDs
-WEBHOOK_SECRET_TOKEN=...    # Random secret for webhook validation (REQUIRED)
-BOT_USERNAME=YourBotName    # Your bot's username without @
+curl "https://api.telegram.org/bot<TOKEN>/setWebhook\
+?url=https://<YOUR_VERCEL_URL>/api/webhook\
+&secret_token=<YOUR_SECRET>"
 ```
 
-### 3. Google Service Account Permissions
-
-The service account only needs these scopes (already configured in the code):
-- `https://www.googleapis.com/auth/spreadsheets`
-- `https://www.googleapis.com/auth/drive.file`
-
-Do **not** grant full Drive access.
-
-### 4. Google Sheets Access
-
-Share your Google Sheet **only** with the service account email address. Do not share the Sheet ID publicly.
-
-### 5. Find Your Telegram User ID
-
-Message [@userinfobot](https://t.me/userinfobot) on Telegram to get your numeric user ID. Add all family members' IDs to `ALLOWED_USERS`.
-
-## 📦 Updated Dependencies
-
+Verify it worked:
 ```bash
-pip install groq gspread google-auth google-auth-oauthlib requests pandas
+curl "https://api.telegram.org/bot<TOKEN>/getWebhookInfo"
 ```
 
-> **Note:** `oauth2client` has been replaced with `google-auth` (the maintained library).
+---
 
-## ⌨️ Command Reference
+## Environment Variables
 
-| Context | Command | Description |
-| --- | --- | --- |
-| **Expenses** | `[Text]` | Log expense (e.g., `15 Lunch`) |
-|  | `[Photo]` | Log receipt via OCR |
-|  | `/summary` | View Analytics Dashboard |
-|  | `/undo` | Delete *your* last expense |
-| **Goals** | `/goal [text]` | Add goal (e.g., `/goal Save 5k`) |
-|  | `/goals` | View/Manage Goals Dashboard |
-|  | `/editgoal` | Edit goal fields (amount, date, note) |
-|  | `/undogoal` | Delete *your* last goal |
-| **General** | `/share` | Get invite link for family |
-|  | `/start` | Open Main Menu |
+All variables are required unless noted.
+
+| Variable | Description |
+|----------|-------------|
+| `TELEGRAM_TOKEN` | Bot token from @BotFather |
+| `GROQ_API_KEY` | Groq Cloud API key |
+| `GOOGLE_SHEET_ID` | Google Sheets document ID (from the URL) |
+| `GOOGLE_JSON_KEY` | Full service account JSON as an escaped single-line string |
+| `ALLOWED_USERS` | JSON array of permitted Telegram user IDs, e.g. `[123456, 789012]` |
+| `WEBHOOK_SECRET_TOKEN` | Random secret registered with Telegram `setWebhook` — **required** |
+| `BOT_USERNAME` | Bot username without `@`, e.g. `FamilyFinanceBot` |
+
+Find your Telegram user ID by messaging [@userinfobot](https://t.me/userinfobot).
+
+---
+
+## Command Reference
+
+| Command | Description |
+|---------|-------------|
+| `[text]` | Log an expense: `15 Rewe`, `12,50 pizza`, `655 ETF investment` |
+| `[photo]` | Send a receipt photo — bot reads total and merchant |
+| `/summary` | Open expense analytics dashboard |
+| `/undo` | Delete your last expense |
+| `/goal [text]` | Add a goal: `/goal Trip to Italy 2000 by June` |
+| `/goals` | View and manage all goals |
+| `/editgoal [id] [field] [value]` | Edit a goal field: `/editgoal a3f2b8c1 amount 3000` |
+| `/undogoal` | Delete your last goal |
+| `/share` | Get the bot invite link |
+| `/start` | Show help and main menu |
+
+### Expense examples
+
+```
+45 Rewe
+12,50 pizza
+655 ETF investment
+24 Dominos
+```
+
+### Goal examples
+
+```
+/goal Emergency fund 10000
+/goal Trip to Japan 5000 by December 2026
+/goal Learn Spanish by summer
+/goal Renew car insurance next month
+/goal Buy new sofa 1500 by March 2027
+```
+
+### editgoal fields
+
+| Field | Example |
+|-------|---------|
+| `amount` | `/editgoal a3f2b8c1 amount 3000` |
+| `date` | `/editgoal a3f2b8c1 date 2027-06-30` |
+| `note` | `/editgoal a3f2b8c1 note Booked flights!` |
+| `status` | `/editgoal a3f2b8c1 status Done` |
+
+---
+
+## Security Model
+
+### Authentication
+
+- Every webhook POST is validated against `X-Telegram-Bot-Api-Secret-Token` before the body is read. The function raises a startup error if `WEBHOOK_SECRET_TOKEN` is not set.
+- Both `message` and `callback_query` events check the sender's user ID against `ALLOWED_USERS`. Unauthorised requests return HTTP 200 silently to avoid leaking bot existence.
+
+### Input handling
+
+- User text is capped at 500 characters before being sent to the LLM.
+- LLM input is wrapped in delimiters (`"""`) with an instruction to treat it as raw data, not instructions.
+- All string fields written to Google Sheets are passed through `sanitize_cell()` to prevent formula injection (`=`, `+`, `-`, `@`, tab, carriage return prefixed with `'`).
+- Expense amounts are validated as floats within `[0, 10000]`; goal amounts within `[0, 100000]`.
+- Categories and goal types are validated against strict allowlists.
+- Receipt images are checked for size (≤ 5 MB) before download.
+- POST body is read up to 1 MB, capped using `Content-Length` with safe int parsing.
+
+### Authorisation
+
+- Goal ownership is enforced by storing the creator's Telegram user ID in the `Created_By` column. Only the creator can complete, delete, or edit their own goals.
+- A best-effort per-user rate limiter (15 requests / 60 seconds, in-process) protects against abuse.
+
+### Privacy
+
+- Financial transaction data and AI responses are logged at `DEBUG` level only — not visible in production logs.
+- Log messages use numeric Telegram user IDs, not display names.
+- Google API scopes are restricted to `spreadsheets` and `drive.file` — no broad Drive access.
+
+### Known limitations
+
+- The rate limiter is in-process; Vercel may run multiple instances, so the effective limit is per-instance, not global.
+- `ALLOWED_USERS` is parsed at cold start; adding or revoking a user requires a redeployment.
+- Receipt images are transmitted to Groq's cloud API for parsing. Sensitive receipt content (names, addresses) leaves your infrastructure.
+
+---
+
+## Dependencies
+
+```
+groq>=0.9.0
+gspread>=6.0.0
+google-auth>=2.28.0
+google-auth-oauthlib>=1.2.0
+requests>=2.31.0
+pandas>=2.0.0
+```
+
+Install with:
+```bash
+pip install -r requirements.txt
+```
+
+---
+
+## License
+
+Apache License 2.0 — see [LICENSE](LICENSE).
