@@ -1,1 +1,26 @@
-credentials.json 
+# Secrets and credentials
+credentials.json
+.env
+*.env
+service-account*.json
+
+# Receipt images — never commit real receipts
+*.jpg
+*.jpeg
+*.png
+*.gif
+*.pdf
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Vercel
+.vercel/
+
+# OS
+.DS_Store
+Thumbs.db

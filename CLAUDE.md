@@ -81,6 +81,7 @@ pandas
 
 ## Known Limitations / Future Work
 
-- In-process cache is per-instance (Vercel can run multiple instances); duplicate writes possible under concurrent load
-- `/undo` ownership check uses first name as fallback (schema migration to user_id recommended)
-- No external rate limiting (rely on Vercel function timeout as a natural cap)
+- In-process rate limiter is per-instance (Vercel can run multiple instances); effective limit is not global
+- `ALLOWED_USERS` is parsed at cold start; adding or revoking a user requires a redeployment
+- No external/global rate limiting beyond the in-process limiter
+- Git history contains a receipt image (`IMG_20260128_175804.jpg`) that was removed from tracking; a full purge requires `git filter-branch` / BFG Repo Cleaner + force-push to main
