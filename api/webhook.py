@@ -280,6 +280,12 @@ def send_telegram(chat_id, text, reply_markup=None):
 
     try:
         resp = requests.post(url, json=payload, timeout=10)
+        # User-supplied content (merchant/goal/note names) can contain characters
+        # that break Telegram's legacy Markdown parser, yielding HTTP 400. Retry once
+        # as plain text so the message still reaches the user instead of being dropped.
+        if resp.status_code == 400 and 'parse' in resp.text.lower():
+            payload.pop("parse_mode", None)
+            resp = requests.post(url, json=payload, timeout=10)
         if resp.status_code != 200:
             logger.error(f"Failed to send message: {resp.text}")
     except Exception as e:
@@ -299,6 +305,10 @@ def edit_telegram_message(chat_id, message_id, text, reply_markup=None):
 
     try:
         resp = requests.post(url, json=payload, timeout=10)
+        # Fall back to plain text if user content breaks the Markdown parser (HTTP 400).
+        if resp.status_code == 400 and 'parse' in resp.text.lower():
+            payload.pop("parse_mode", None)
+            resp = requests.post(url, json=payload, timeout=10)
         if resp.status_code != 200:
             logger.warning(f"Edit message failed: {resp.text}")
     except Exception as e:
@@ -999,11 +1009,18 @@ def save_expense(parsed, user_name):
 def handle_callback_query(callback_query):
     """Handle dashboard button clicks"""
     callback_id = callback_query['id']
-    chat_id = callback_query['message']['chat']['id']
-    message_id = callback_query['message']['message_id']
-    data_val = callback_query['data']
-    user_name = callback_query['from'].get('first_name', 'Unknown')
-    user_id = callback_query['from'].get('id')
+    # Telegram omits 'message' when the original is too old/inaccessible, and 'data'
+    # is absent for non-data buttons. Acknowledge and bail instead of raising a
+    # KeyError that would surface as an HTTP 500 in the Vercel logs.
+    message = callback_query.get('message')
+    data_val = callback_query.get('data')
+    if not message or not data_val:
+        answer_callback(callback_id)
+        return
+    chat_id = message['chat']['id']
+    message_id = message['message_id']
+    user_name = callback_query.get('from', {}).get('first_name', 'Unknown')
+    user_id = callback_query.get('from', {}).get('id')
 
     # Handle main menu callbacks
     if data_val.startswith('menu:'):
