@@ -23,6 +23,11 @@ GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 SHEET_ID = os.environ.get("GOOGLE_SHEET_ID")
 BOT_USERNAME = os.environ.get("BOT_USERNAME", "")
 
+# Groq model used for both receipt vision and text/goal parsing.
+# Must stay vision-capable and support JSON mode - the receipt path sends an
+# image and every call requests response_format={"type": "json_object"}.
+GROQ_MODEL = os.environ.get("GROQ_MODEL", "qwen/qwen3.6-27b")
+
 # Fail fast at cold start if any required env var is missing
 if not TELEGRAM_TOKEN or not GROQ_API_KEY or not SHEET_ID:
     raise ValueError("Missing required environment variables: TELEGRAM_TOKEN, GROQ_API_KEY, or GOOGLE_SHEET_ID")
@@ -1385,7 +1390,7 @@ def handle_add_goal(msg):
                 {"role": "system", "content": prompt},
                 {"role": "user", "content": safe_goal}
             ],
-            model="meta-llama/llama-4-scout-17b-16e-instruct",
+            model=GROQ_MODEL,
             temperature=0,
             response_format={"type": "json_object"}
         )
@@ -1713,7 +1718,7 @@ def handle_expense_message(msg):
         try:
             chat_completion = client.chat.completions.create(
                 messages=messages,
-                model="meta-llama/llama-4-scout-17b-16e-instruct",  # Updated to actual Groq model
+                model=GROQ_MODEL,
                 temperature=0,
                 response_format={"type": "json_object"}
             )

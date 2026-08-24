@@ -2,13 +2,13 @@
 
 ## Project Overview
 
-A serverless Telegram bot for family finance tracking and goal management. Deployed on Vercel. Uses Groq (Llama 4 Vision) for LLM parsing, Google Sheets as the database, and the Telegram Bot API as the UI.
+A serverless Telegram bot for family finance tracking and goal management. Deployed on Vercel. Uses Groq (vision model) for LLM parsing, Google Sheets as the database, and the Telegram Bot API as the UI.
 
 ## Architecture
 
 - **Entry point:** `api/webhook.py` — single-file serverless handler
 - **Hosting:** Vercel (function at `/api/webhook`)
-- **AI:** Groq Cloud API with `meta-llama/llama-4-scout-17b-16e-instruct`
+- **AI:** Groq Cloud API with `qwen/qwen3.6-27b` (override with `GROQ_MODEL`)
 - **Database:** Google Sheets (two tabs: `Expenses`, `Goals`)
 - **Interface:** Telegram Bot API (webhook mode)
 
@@ -45,6 +45,7 @@ GOOGLE_JSON_KEY         Full service account JSON (as escaped string)
 ALLOWED_USERS           JSON array of permitted Telegram user IDs e.g. [123456, 789012]
 WEBHOOK_SECRET_TOKEN    Random secret registered with Telegram setWebhook
 BOT_USERNAME            Telegram bot username (without @)
+GROQ_MODEL              Optional. Groq model ID (default qwen/qwen3.6-27b)
 ```
 
 ## Security Model

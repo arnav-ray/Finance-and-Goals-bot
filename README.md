@@ -19,7 +19,7 @@ A serverless Telegram bot for family finance tracking and goal management. Send 
 
 ## Overview
 
-Family members text expenses naturally (`15 Rewe`, `12,50 pizza`) or upload a receipt photo. The bot uses Groq's Llama 4 Vision to parse the input, validates the result, and appends a row to a shared Google Sheet. Interactive Telegram dashboards show spending by category, user, and merchant with drill-down buttons.
+Family members text expenses naturally (`15 Rewe`, `12,50 pizza`) or upload a receipt photo. The bot uses a Groq vision model to parse the input, validates the result, and appends a row to a shared Google Sheet. Interactive Telegram dashboards show spending by category, user, and merchant with drill-down buttons.
 
 Goals work the same way: `/goal Trip to Japan 5000 by December` — the AI parses the type, amount, and deadline, and saves it to a Goals sheet with a unique ID.
 
@@ -51,7 +51,7 @@ Vercel serverless function  (api/webhook.py)
     ├─ Auth: ALLOWED_USERS allowlist
     ├─ Rate limit: 15 req / 60s per user (in-process)
     │
-    ├─ Text/image → Groq Cloud API (Llama 4 Vision)
+    ├─ Text/image → Groq Cloud API (vision model)
     │               structured JSON response
     │
     ├─ Validate → sanitize → append row
@@ -65,7 +65,7 @@ Google Sheets  (Expenses tab + Goals tab)
 |-----------|-----------|
 | Runtime | Python 3.9+ |
 | Hosting | Vercel Serverless |
-| AI | Groq Cloud — `meta-llama/llama-4-scout-17b-16e-instruct` |
+| AI | Groq Cloud — `qwen/qwen3.6-27b` (override with `GROQ_MODEL`) |
 | Database | Google Sheets (via gspread) |
 | Interface | Telegram Bot API (webhook mode) |
 
@@ -160,6 +160,7 @@ All variables are required unless noted.
 | `ALLOWED_USERS` | JSON array of permitted Telegram user IDs, e.g. `[123456, 789012]` |
 | `WEBHOOK_SECRET_TOKEN` | Random secret registered with Telegram `setWebhook` — **required** |
 | `BOT_USERNAME` | Bot username without `@`, e.g. `FamilyFinanceBot` |
+| `GROQ_MODEL` | Optional. Groq model ID, defaults to `qwen/qwen3.6-27b`. Must be vision-capable and support JSON mode. |
 
 Find your Telegram user ID by messaging [@userinfobot](https://t.me/userinfobot).
 
