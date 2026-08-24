@@ -1392,7 +1392,8 @@ def handle_add_goal(msg):
             ],
             model=GROQ_MODEL,
             temperature=0,
-            response_format={"type": "json_object"}
+            response_format={"type": "json_object"},
+            reasoning_format="hidden"
         )
 
         response_content = response.choices[0].message.content
@@ -1720,7 +1721,8 @@ def handle_expense_message(msg):
                 messages=messages,
                 model=GROQ_MODEL,
                 temperature=0,
-                response_format={"type": "json_object"}
+                response_format={"type": "json_object"},
+                reasoning_format="hidden"
             )
 
             response_content = chat_completion.choices[0].message.content
